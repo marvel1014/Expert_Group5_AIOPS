@@ -1,0 +1,166 @@
+# 可解释规则决策模型：故障类别 -> 特征权重。
+#
+# 打分公式：score = min(max_score, Σ 命中特征权重)
+#   - rule_keywords：在事件告警的 rule/message/rule_family 文本中命中的关键词，每个关键词计一次
+#   - rule_families：告警规则族命中（来自 config/rules.yaml 的分类）
+#   - log_patterns：在事件关联日志的 message/stack 中命中的错误签名（正则，忽略大小写）
+#   - node_kinds：事件根因候选节点的拓扑角色，命中任一角色计一次
+#   - severity_boost：事件最高严重级别为 critical/high 时的少量加成
+# 同一输入严格确定性（按得分降序、类别名升序输出 Top-3），调整权重即可改变排序。
+version: rule-v1
+description: AIOps 故障事件可解释规则打分模型
+
+defaults:
+  # 未命中任何特征时的基础分，保证永远返回候选列表
+  no_match_prior: 0.01
+  # 事件严重级别为 critical/high 时的加成
+  severity_boost: 0.05
+  # 单类别得分上限
+  max_score: 1.0
+  # 返回候选数量
+  top_n: 3
+
+categories:
+  db_connection_pool_exhausted:
+    label: 数据库连接池耗尽
+    node_kinds:
+      db: 0.25
+      service: 0.05
+      host: 0.05
+    rule_keywords:
+      - {pattern: too many connections, weight: 0.45}
+      - {pattern: connection pool exhausted, weight: 0.45}
+      - {pattern: connection pool, weight: 0.25}
+      - {pattern: max connections, weight: 0.3}
+      - {pattern: can't connect to mysql, weight: 0.3}
+      - {pattern: database connection, weight: 0.2}
+      - {pattern: deadlock, weight: 0.1}
+    rule_families:
+      db_connection: 0.2
+    log_patterns:
+      - {pattern: TooManyConnections, weight: 0.35}
+      - {pattern: OperationalError, weight: 0.1}
+      - {pattern: connection pool, weight: 0.15}
+
+  network_partition:
+    label: 网络分区
+    node_kinds:
+      service: 0.15
+      gateway: 0.1
+      db: 0.05
+      host: 0.05
+    rule_keywords:
+      - {pattern: network partition, weight: 0.45}
+      - {pattern: packet loss, weight: 0.4}
+      - {pattern: connection reset, weight: 0.4}
+      - {pattern: network unreachable, weight: 0.4}
+      - {pattern: no route to host, weight: 0.4}
+      - {pattern: i/o timeout, weight: 0.35}
+      - {pattern: dns, weight: 0.3}
+      - {pattern: socket timeout, weight: 0.25}
+    rule_families:
+      network: 0.3
+    log_patterns:
+      - {pattern: ConnectionResetError, weight: 0.3}
+      - {pattern: NetworkError, weight: 0.25}
+      - {pattern: Temporary failure in name resolution, weight: 0.3}
+      - {pattern: Connection timed out, weight: 0.2}
+
+  disk_full:
+    label: 磁盘写满
+    node_kinds:
+      host: 0.2
+      db: 0.1
+      service: 0.05
+    rule_keywords:
+      - {pattern: no space left, weight: 0.5}
+      - {pattern: disk full, weight: 0.45}
+      - {pattern: read-only file system, weight: 0.35}
+      - {pattern: disk usage, weight: 0.3}
+      - {pattern: filesystem, weight: 0.25}
+      - {pattern: inode, weight: 0.3}
+    rule_families:
+      disk_usage: 0.2
+    log_patterns:
+      - {pattern: ENOSPC, weight: 0.35}
+      - {pattern: No space left on device, weight: 0.4}
+      - {pattern: OSError, weight: 0.1}
+
+  cpu_overload:
+    label: CPU 过载
+    node_kinds:
+      host: 0.2
+      service: 0.1
+    rule_keywords:
+      - {pattern: cpu usage, weight: 0.4}
+      - {pattern: high cpu, weight: 0.35}
+      - {pattern: load average, weight: 0.35}
+      - {pattern: cpu saturation, weight: 0.35}
+      - {pattern: cpu throttl, weight: 0.3}
+      - {pattern: 100% cpu, weight: 0.4}
+    rule_families:
+      cpu_usage: 0.2
+    log_patterns:
+      - {pattern: load average, weight: 0.2}
+      - {pattern: CPU throttling, weight: 0.2}
+
+  service_crash:
+    label: 服务进程崩溃
+    node_kinds:
+      service: 0.25
+      host: 0.05
+    rule_keywords:
+      - {pattern: service crash, weight: 0.45}
+      - {pattern: process exited, weight: 0.4}
+      - {pattern: oomkilled, weight: 0.4}
+      - {pattern: segmentation fault, weight: 0.4}
+      - {pattern: core dumped, weight: 0.35}
+      - {pattern: crashloop, weight: 0.4}
+      - {pattern: health check failed, weight: 0.3}
+      - {pattern: exited with code, weight: 0.3}
+      - {pattern: service unavailable, weight: 0.2}
+    rule_families:
+      process: 0.2
+    log_patterns:
+      - {pattern: panic, weight: 0.3}
+      - {pattern: exited with code, weight: 0.3}
+      - {pattern: Segmentation fault, weight: 0.35}
+      - {pattern: OOMKilled, weight: 0.35}
+
+  config_error:
+    label: 配置错误
+    node_kinds:
+      service: 0.2
+      gateway: 0.1
+    rule_keywords:
+      - {pattern: invalid configuration, weight: 0.45}
+      - {pattern: configuration error, weight: 0.45}
+      - {pattern: config error, weight: 0.45}
+      - {pattern: config reload failed, weight: 0.35}
+      - {pattern: unknown config, weight: 0.4}
+      - {pattern: missing required configuration, weight: 0.4}
+      - {pattern: invalid argument, weight: 0.3}
+    rule_families:
+      config: 0.25
+    log_patterns:
+      - {pattern: ConfigurationError, weight: 0.3}
+      - {pattern: invalid configuration, weight: 0.35}
+      - {pattern: parse error, weight: 0.2}
+
+  dependency_timeout:
+    label: 依赖调用超时
+    node_kinds:
+      service: 0.1
+      gateway: 0.1
+    rule_keywords:
+      - {pattern: upstream timeout, weight: 0.35}
+      - {pattern: deadline exceeded, weight: 0.35}
+      - {pattern: took too long, weight: 0.25}
+      - {pattern: timeout, weight: 0.2}
+      - {pattern: latency high, weight: 0.2}
+      - {pattern: slow response, weight: 0.2}
+    rule_families:
+      network: 0.05
+    log_patterns:
+      - {pattern: TimeoutError, weight: 0.25}
+      - {pattern: deadline exceeded, weight: 0.3}

@@ -1,0 +1,66 @@
+# 配置错误场景：order-service 发布错误配置后启动失败，混入数据库连接拒绝干扰。
+id: config-error
+name: 服务配置错误
+category: config_error
+description: order-service 新版本写入非法配置（超时为负数、未知配置键），配置热加载失败导致服务拒绝启动。
+compression: 10
+
+topology:
+  nodes:
+    - {id: order-service, kind: service, name: order-service}
+    - {id: order-host-01, kind: host, name: order-host-01}
+    - {id: gateway, kind: gateway, name: api-gateway}
+    - {id: gateway-host-01, kind: host, name: gateway-host-01}
+  edges:
+    - {upstream: order-host-01, downstream: order-service, weight: 1.0}
+    - {upstream: order-service, downstream: gateway, weight: 1.0}
+    - {upstream: gateway-host-01, downstream: gateway, weight: 1.0}
+
+alerts:
+  - offset: 0
+    host: order-host-01
+    service: order-service
+    rule: "Invalid configuration value: order.payment.timeout=-1"
+    severity: critical
+    message: "config reload failed: invalid configuration, service refused to start"
+  - offset: 6
+    host: order-host-01
+    service: order-service
+    rule: Service startup failed due to invalid configuration
+    severity: high
+    message: "unknown config key payment.retry, missing required configuration"
+  - offset: 12
+    host: gateway-host-01
+    service: gateway
+    rule: Gateway 5xx rate elevated
+    severity: medium
+    message: api-gateway 5xx rate 12% caused by order-service startup failure
+
+logs:
+  - offset: 1
+    host: order-host-01
+    service: order-service
+    level: ERROR
+    message: "ConfigurationError: invalid configuration key 'payment.retry'"
+    stack: |-
+      Traceback (most recent call last):
+        File "/srv/app/config.py", line 61, in load
+          validate(schema, data)
+        File "/srv/app/config.py", line 88, in validate
+          raise ConfigurationError("invalid configuration key: payment.retry")
+      ConfigurationError: invalid configuration key 'payment.retry'
+    trace_id: trace-config-001
+  - offset: 3
+    host: order-host-01
+    service: order-service
+    level: ERROR
+    message: "ConfigParseError: invalid configuration value order.payment.timeout=-1"
+    stack: |-
+      File "/srv/app/config.py", line 47, in parse
+        raise ConfigParseError("invalid configuration value: order.payment.timeout=-1")
+      ConfigParseError: invalid configuration value: order.payment.timeout=-1
+
+expected:
+  root_cause_category: config_error
+  root_cause_node: order-service
+  affected_nodes: [order-service, gateway]

@@ -1,0 +1,63 @@
+# 机房服务拓扑快照：有向边表示"故障传播方向"，即被依赖组件 -> 依赖它的组件。
+# 例：mysql-primary -> order-service 表示 MySQL 故障会向上游订单服务传播，
+# 因此关联时入度为 0 的节点（mysql-primary）是根因候选。
+nodes:
+  - id: gateway
+    kind: gateway
+    name: api-gateway
+  - id: order-service
+    kind: service
+    name: order-service
+  - id: payment-service
+    kind: service
+    name: payment-service
+  - id: user-service
+    kind: service
+    name: user-service
+  - id: mysql-primary
+    kind: db
+    name: mysql-primary
+  - id: redis-cache
+    kind: cache
+    name: redis-cache
+  - id: order-host-01
+    kind: host
+    name: order-host-01
+  - id: db-host-01
+    kind: host
+    name: db-host-01
+  - id: gateway-host-01
+    kind: host
+    name: gateway-host-01
+
+edges:
+  - upstream: mysql-primary
+    downstream: order-service
+    weight: 1.0
+  - upstream: mysql-primary
+    downstream: payment-service
+    weight: 1.0
+  - upstream: redis-cache
+    downstream: order-service
+    weight: 0.8
+  - upstream: redis-cache
+    downstream: user-service
+    weight: 0.8
+  - upstream: payment-service
+    downstream: order-service
+    weight: 1.0
+  - upstream: order-service
+    downstream: gateway
+    weight: 1.0
+  - upstream: user-service
+    downstream: gateway
+    weight: 1.0
+  - upstream: order-host-01
+    downstream: order-service
+    weight: 1.0
+  - upstream: db-host-01
+    downstream: mysql-primary
+    weight: 1.0
+  - upstream: gateway-host-01
+    downstream: gateway
+    weight: 1.0

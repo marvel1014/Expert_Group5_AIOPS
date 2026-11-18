@@ -1,0 +1,62 @@
+# 磁盘写满场景：db-host-01 数据盘写满导致 MySQL 写入失败，混入 inode 与慢查询干扰。
+id: disk-full
+name: 宿主机磁盘写满
+category: disk_full
+description: db-host-01 的 /var/lib/mysql 分区写满，MySQL 无法写入 binlog，业务写入失败。
+compression: 10
+
+topology:
+  nodes:
+    - {id: db-host-01, kind: host, name: db-host-01}
+    - {id: mysql-primary, kind: db, name: mysql-primary}
+  edges:
+    - {upstream: db-host-01, downstream: mysql-primary, weight: 1.0}
+
+alerts:
+  - offset: 0
+    host: db-host-01
+    service: null
+    rule: No space left on device
+    severity: critical
+    message: Filesystem /var/lib/mysql usage 100%, inode usage 98%
+  - offset: 6
+    host: db-host-01
+    service: mysql-primary
+    rule: "MySQL write failed: disk full"
+    severity: high
+    message: "Error writing to /var/lib/mysql: No space left on device"
+  - offset: 12
+    host: db-host-01
+    service: null
+    rule: inode usage high on db-host-01
+    severity: medium
+    message: inode usage 98% on mounted volume /var/lib/mysql
+
+logs:
+  - offset: 1
+    host: db-host-01
+    service: null
+    level: ERROR
+    message: "OSError: [Errno 28] No space left on device"
+    stack: |-
+      Traceback (most recent call last):
+        File "/srv/app/rotate.py", line 33, in rotate_binlog
+          os.rename(tmp_path, final_path)
+        File "/usr/lib/python3.12/os.py", line 1142, in rename
+          os.rename(src, dst)
+      OSError: [Errno 28] No space left on device
+    trace_id: trace-disk-001
+  - offset: 7
+    host: db-host-01
+    service: mysql-primary
+    level: ERROR
+    message: "pymysql.err.OperationalError: (28, 'No space left on device')"
+    stack: |-
+      File "/srv/app/mysql.py", line 90, in write_binlog
+        self._conn.execute(sql)
+      pymysql.err.OperationalError: (28, 'No space left on device')
+
+expected:
+  root_cause_category: disk_full
+  root_cause_node: db-host-01
+  affected_nodes: [db-host-01, mysql-primary]

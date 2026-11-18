@@ -1,0 +1,60 @@
+# CPU 过载场景：order-host-01 CPU 打满触发服务延迟，含超时日志干扰。
+id: cpu-overload
+name: 宿主机 CPU 过载
+category: cpu_overload
+description: order-host-01 上 CPU 使用率持续 98%，cgroup 频繁限流，order-service 响应变慢。
+compression: 10
+
+topology:
+  nodes:
+    - {id: order-host-01, kind: host, name: order-host-01}
+    - {id: order-service, kind: service, name: order-service}
+  edges:
+    - {upstream: order-host-01, downstream: order-service, weight: 1.0}
+
+alerts:
+  - offset: 0
+    host: order-host-01
+    service: null
+    rule: CPU usage 98% on order-host-01
+    severity: critical
+    message: load average 32.5 (threshold 8), cpu saturation on 16 cores
+  - offset: 6
+    host: order-host-01
+    service: order-service
+    rule: Service response latency high
+    severity: high
+    message: p99 latency 5s, CPU throttling detected
+  - offset: 12
+    host: order-host-01
+    service: null
+    rule: CPU throttling events
+    severity: medium
+    message: cpu throttling 42% of cores in last 5 minutes
+
+logs:
+  - offset: 1
+    host: order-host-01
+    service: null
+    level: ERROR
+    message: "CPUThrottlingError: cgroup throttled 4200 times, load average 33.1"
+    stack: |-
+      Traceback (most recent call last):
+        File "/srv/app/monitor.py", line 51, in check
+          raise CPUThrottlingError("cpu cgroup throttled")
+      CPUThrottlingError: cgroup throttled 4200 times, load average 33.1
+    trace_id: trace-cpu-001
+  - offset: 7
+    host: order-host-01
+    service: order-service
+    level: ERROR
+    message: "TimeoutError: request timed out after 5000ms"
+    stack: |-
+      File "/srv/app/handler.py", line 64, in handle
+        return await asyncio.wait_for(self._process(), timeout=5)
+      TimeoutError: request timed out after 5000ms
+
+expected:
+  root_cause_category: cpu_overload
+  root_cause_node: order-host-01
+  affected_nodes: [order-host-01, order-service]

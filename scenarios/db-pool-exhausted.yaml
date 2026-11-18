@@ -1,0 +1,66 @@
+# 数据库连接池耗尽场景：根因 mysql-primary，干扰项为慢查询与磁盘告警。
+id: db-pool-exhausted
+name: 数据库连接池耗尽
+category: db_connection_pool_exhausted
+description: MySQL 连接池被打满，连接获取超时引发业务查询延迟；同时混入慢查询与磁盘使用率干扰告警。
+compression: 10
+
+topology:
+  nodes:
+    - {id: mysql-primary, kind: db, name: mysql-primary}
+    - {id: db-host-01, kind: host, name: db-host-01}
+    - {id: order-service, kind: service, name: order-service}
+  edges:
+    - {upstream: db-host-01, downstream: mysql-primary, weight: 1.0}
+    - {upstream: mysql-primary, downstream: order-service, weight: 1.0}
+
+alerts:
+  - offset: 0
+    host: db-host-01
+    service: mysql-primary
+    rule: MySQL connection pool exhausted
+    severity: critical
+    message: Too many connections (151/151) while acquiring pooled connection
+  - offset: 4
+    host: db-host-01
+    service: mysql-primary
+    rule: Query latency high on mysql-primary
+    severity: high
+    message: p99 latency 2.4s, slow queries 120/s
+  - offset: 9
+    host: db-host-01
+    service: mysql-primary
+    rule: Disk usage warning on db-host-01
+    severity: medium
+    message: disk usage 71%, inode usage 40%, below threshold
+
+logs:
+  - offset: 1
+    host: db-host-01
+    service: mysql-primary
+    level: ERROR
+    message: "TooManyConnectionsError: too many connections (151/151)"
+    stack: |-
+      Traceback (most recent call last):
+        File "/srv/app/db.py", line 88, in acquire
+          conn = pool.get_connection(timeout=5)
+        File "/srv/app/pool.py", line 42, in get_connection
+          raise TooManyConnectionsError("too many connections (151/151)")
+      TooManyConnectionsError: too many connections (151/151)
+      password=ProdPass2026! token=sk-live-abc123
+    trace_id: trace-db-001
+  - offset: 5
+    host: db-host-01
+    service: mysql-primary
+    level: ERROR
+    message: "QueryTimeout: acquire connection timeout after 5000ms"
+    stack: |-
+      Traceback (most recent call last):
+        File "/srv/app/repo.py", line 130, in list_orders
+          return db.query(Order).filter(Order.id == order_id).one()
+      QueryTimeout: acquire connection timeout after 5000ms
+
+expected:
+  root_cause_category: db_connection_pool_exhausted
+  root_cause_node: mysql-primary
+  affected_nodes: [mysql-primary, order-service]

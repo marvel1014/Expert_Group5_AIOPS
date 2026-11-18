@@ -1,0 +1,75 @@
+# 网络分区场景：order-service 与 mysql-primary 之间链路中断，下游 DB 告警为干扰项。
+id: network-partition
+name: 服务间网络分区
+category: network_partition
+description: order-service 到 mysql-primary 的网络链路出现丢包与连接重置，下游数据库被动出现连接异常。
+compression: 10
+
+topology:
+  nodes:
+    - {id: order-service, kind: service, name: order-service}
+    - {id: order-host-01, kind: host, name: order-host-01}
+    - {id: mysql-primary, kind: db, name: mysql-primary}
+    - {id: db-host-01, kind: host, name: db-host-01}
+  edges:
+    - {upstream: order-host-01, downstream: order-service, weight: 1.0}
+    - {upstream: mysql-primary, downstream: order-service, weight: 1.0}
+    - {upstream: db-host-01, downstream: mysql-primary, weight: 1.0}
+
+alerts:
+  - offset: 0
+    host: order-host-01
+    service: order-service
+    rule: Network partition detected
+    severity: critical
+    message: Packet loss 100% between order-service and mysql-primary
+  - offset: 5
+    host: db-host-01
+    service: mysql-primary
+    rule: Connection reset by peer
+    severity: high
+    message: Connection reset by peer when reading response from client
+  - offset: 10
+    host: order-host-01
+    service: order-service
+    rule: DNS resolution failed
+    severity: medium
+    message: Temporary failure in name resolution for mysql-primary
+
+logs:
+  - offset: 1
+    host: order-host-01
+    service: order-service
+    level: ERROR
+    message: "ConnectionResetError: [Errno 104] Connection reset by peer"
+    stack: |-
+      Traceback (most recent call last):
+        File "/srv/app/client.py", line 77, in call_db
+          response = conn.request("GET", "/orders")
+        File "/srv/app/http.py", line 58, in request
+          raise ConnectionResetError(104, "Connection reset by peer")
+      ConnectionResetError: [Errno 104] Connection reset by peer
+    trace_id: trace-net-001
+  - offset: 3
+    host: db-host-01
+    service: mysql-primary
+    level: ERROR
+    message: "ConnectionResetError: reset by peer during handshake"
+    stack: |-
+      File "/srv/app/mysql.py", line 41, in handshake
+        self.sock.sendall(payload)
+      ConnectionResetError: [Errno 104] Connection reset by peer
+  - offset: 6
+    host: order-host-01
+    service: order-service
+    level: ERROR
+    message: "socket.gaierror: Temporary failure in name resolution"
+    stack: |-
+      File "/srv/app/dns.py", line 19, in resolve
+        return socket.getaddrinfo(host, port)
+      socket.gaierror: [Errno -3] Temporary failure in name resolution
+
+expected:
+  root_cause_category: network_partition
+  root_cause_node: mysql-primary
+  affected_nodes: [mysql-primary, order-service]

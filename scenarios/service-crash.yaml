@@ -1,0 +1,64 @@
+# 服务进程崩溃场景：payment-service 被 OOMKill 后反复崩溃重启，下游 DB 错误为干扰。
+id: service-crash
+name: 服务进程崩溃
+category: service_crash
+description: payment-service 因内存越界崩溃并被 OOMKill，容器反复重启（CrashLoopBackOff），下游数据库出现错误率上升。
+compression: 10
+
+topology:
+  nodes:
+    - {id: payment-service, kind: service, name: payment-service}
+    - {id: order-service, kind: service, name: order-service}
+    - {id: order-host-01, kind: host, name: order-host-01}
+  edges:
+    - {upstream: payment-service, downstream: order-service, weight: 1.0}
+    - {upstream: order-host-01, downstream: order-service, weight: 1.0}
+
+alerts:
+  - offset: 0
+    host: payment-host-01
+    service: payment-service
+    rule: Service process exited unexpectedly
+    severity: critical
+    message: payment-service exited with code 137 (OOMKilled), restart attempts 5
+  - offset: 5
+    host: order-host-01
+    service: order-service
+    rule: Service response errors up 40%
+    severity: high
+    message: order requests failing because payment-service unavailable
+  - offset: 10
+    host: payment-host-01
+    service: payment-service
+    rule: CrashLoopBackOff detected
+    severity: medium
+    message: container restarting repeatedly, backoff 300s
+
+logs:
+  - offset: 1
+    host: payment-host-01
+    service: payment-service
+    level: ERROR
+    message: "panic: runtime error: invalid memory address or nil pointer dereference"
+    stack: |-
+      panic: runtime error: invalid memory address or nil pointer dereference
+      goroutine 42 [running]:
+      payment.(*Handler).Process(0xc000120000)
+        /srv/payment/handler.go:88 +0x2f
+      payment.(*Server).Serve(0xc0000b4000)
+        /srv/payment/server.go:41 +0x1a5
+      exit status 2
+    trace_id: trace-crash-001
+  - offset: 6
+    host: payment-host-01
+    service: payment-service
+    level: ERROR
+    message: "Container exited with code 137 (OOMKilled)"
+    stack: |-
+      event: container payment-service terminated, reason OOMKilled, exitCode 137
+      restartPolicy: Always, restartCount: 5
+
+expected:
+  root_cause_category: service_crash
+  root_cause_node: payment-service
+  affected_nodes: [payment-service, order-service]

@@ -1,0 +1,36 @@
+# 规则族定义：用于展示、降噪统计与日志筛选，不影响指纹（指纹基于归一化规则名）
+families:
+  cpu_usage:
+    - cpu
+    - load average
+    - load15
+  memory_usage:
+    - memory
+    - oom
+    - mem_used
+  disk_usage:
+    - disk
+    - filesystem
+    - no space
+    - inode
+  db_connection:
+    - connection pool
+    - too many connections
+    - database connection
+    - deadlock
+  network:
+    - packet loss
+    - network
+    - timeout
+    - connection reset
+    - dns
+  process:
+    - process
+    - restart
+    - crash
+    - service down
+    - exited
+  config:
+    - config
+    - invalid argument
+    - misconfiguration
